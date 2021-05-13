@@ -1,0 +1,2 @@
+sudo reboot -f
+
