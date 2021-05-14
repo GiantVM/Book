@@ -1,10 +1,10 @@
-CONFIG_MODULE_SIG=n
+obj-m += pci.o
+ccflags-y := -DDEBUG -g -std=gnu99 -Wno-declaration-after-statement
 
-obj-m := edu-driver.o
+.PHONY: all clean
 
-KERNELBUILD :=/home/zzj/linux
+all:
+	$(MAKE) -C /usr/src/linux-headers-4.15.0-140-generic M='$(PWD)' modules
 
-default:
-	make -C $(KERNELBUILD) M=$(shell pwd) modules
 clean:
-	rm -rf *.o  *.ko *.mod.c .*.cmd .tmp_versions *.order *.symvers                                                              
+	$(MAKE) -C '$(LINUX_DIR)' M='$(PWD)' clean
