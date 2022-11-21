@@ -3,9 +3,9 @@ clear
 sudo dmesg --clear
 make
 
-sudo insmod lkm.ko
+sudo insmod gpt-dump.ko
 dmesg --notime > gpt-dump.txt
 sudo dmesg --clear
 
-sudo rmmod lkm.ko
+sudo rmmod gpt-dump.ko
 cat gpt-dump.txt
