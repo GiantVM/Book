@@ -6890,7 +6890,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	}
 
 	switch (nr) {
-	case KVM_HC_DUMP_SPT:
+	case 22:
 		print_gpa_from_guest(a0);
 		mmu_spte_walk(vcpu, pr_spte);
 		ret = 0;
