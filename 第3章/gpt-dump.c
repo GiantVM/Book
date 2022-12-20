@@ -166,7 +166,7 @@ int init_module(void) {
       ptr[i] = ptr[i] - 1;
     kfree((const void *) ptr);
 
-    return -1;
+    return 0;
 }
 
 void cleanup_module(void) {}
