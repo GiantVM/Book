@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <stdio.h>
 
 #define MAGIC 'k'
 #define DMA_READ_CMD    _IO(MAGIC,0x1a)
