@@ -5,8 +5,8 @@
 
 本仓库包含了若干章节的实验部分的代码。
 
-+ [第2章CPU虚拟化实验](./第2章)由余博识[@201608ybs](https://github.com/201608ybs)负责  
++ [第2章CPU虚拟化实验](./Chapter-2)由余博识[@201608ybs](https://github.com/201608ybs)负责  
 
-+ [第3章内存虚拟化实验](./第3章)由贾兴国[@snake0](https://github.com/snake0)负责 
++ [第3章内存虚拟化实验](./Chapter-3)由贾兴国[@snake0](https://github.com/snake0)负责 
 
-+ [第4章I/O虚拟化实验](./第4章)由张正君[zzjsjtu](https://github.com/zzjsjtu)负责
++ [第4章I/O虚拟化实验](./Chapter-4)由张正君[zzjsjtu](https://github.com/zzjsjtu)负责
