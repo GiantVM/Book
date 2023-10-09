@@ -6833,7 +6833,7 @@ static void pr_spte(unsigned long address, u64 spte,
 	else
 			pr_cont(" NEXT_LVL_HPA(%s)  =  ", PREFIXES[level - 2]);
 	pr_cont(PTE_PHYADDR_PATTREN, UL_TO_PTE_PHYADDR(address >> PAGE_SHIFT));
-	pr_cont(" +  64 * %-3lu\n", i);
+	pr_cont(" +   8 * %-3lu\n", i);
 	pr_sep();
 
 	pr_cont(" %-3lu: %s " PTE_PATTERN"\n", i, PREFIXES[level - 1], UL_TO_PTE(spte));
