@@ -10,3 +10,7 @@
 + [第3章内存虚拟化实验](./Chapter-3)由贾兴国[@snake0](https://github.com/snake0)负责 
 
 + [第4章I/O虚拟化实验](./Chapter-4)由张正君[zzjsjtu](https://github.com/zzjsjtu)负责
+
+## 勘误校对
+
+2023-10-09: 修复原书第三章中实验的 PTE 大小为 64 bytes 的显示错误，修改为 8 bytes
