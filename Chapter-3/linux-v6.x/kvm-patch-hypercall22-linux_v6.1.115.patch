@@ -1,0 +1,300 @@
+diff --git a/linux-6.1.115/arch/x86/kvm/Makefile b/linux-6.1.115/arch/x86/kvm/Makefile
+index f453a0f..2f194dd 100644
+--- a/linux-6.1.115/arch/x86/kvm/Makefile
++++ b/linux-6.1.115/arch/x86/kvm/Makefile
+@@ -46,3 +46,5 @@ $(obj)/kvm-asm-offsets.h: $(obj)/kvm-asm-offsets.s FORCE
+ 
+ targets += kvm-asm-offsets.s
+ clean-files += kvm-asm-offsets.h
++
++kvm-y += mmu/hypercall_22.o
+diff --git b/linux-6.1.115/arch/x86/kvm/mmu/hypercall_22.c b/linux-6.1.115/arch/x86/kvm/mmu/hypercall_22.c
+new file mode 100644
+index 0000000..e1ab7f2
+--- /dev/null
++++ b/linux-6.1.115/arch/x86/kvm/mmu/hypercall_22.c
+@@ -0,0 +1,256 @@
++#include "mmu.h"
++#include "spte.h"
++
++static inline void pr_sep(void)
++{
++	// pr_err(" ...........................................................................\n");
++	pr_err("\n");
++}
++
++/* convert to 0, 0, 1, 0, 1, 1, 0, ... */
++
++// convert unsigned long to vaddr
++#define BYTE_TO_BINARY(byte) \
++	((byte) & 0x80 ? '1' : '0'), ((byte) & 0x40 ? '1' : '0'), \
++	((byte) & 0x20 ? '1' : '0'), ((byte) & 0x10 ? '1' : '0'), \
++	((byte) & 0x08 ? '1' : '0'), ((byte) & 0x04 ? '1' : '0'), \
++	((byte) & 0x02 ? '1' : '0'), ((byte) & 0x01 ? '1' : '0')
++
++#define TBYTE_TO_BINARY(tbyte)  \
++	((tbyte) & 0x04 ? '1' : '0'),    \
++	((tbyte) & 0x02 ? '1' : '0'), ((tbyte) & 0x01 ? '1' : '0')
++
++#define UL_TO_PTE_OFFSET(ulong) \
++	TBYTE_TO_BINARY((ulong) >> 9), TBYTE_TO_BINARY((ulong) >> 6), \
++	TBYTE_TO_BINARY((ulong) >> 3), TBYTE_TO_BINARY((ulong))
++
++#define UL_TO_PTE_INDEX(ulong)         \
++	TBYTE_TO_BINARY((ulong) >> 6), \
++	TBYTE_TO_BINARY((ulong) >> 3), \
++	TBYTE_TO_BINARY((ulong))
++
++#define UL_TO_VADDR(ulong) \
++	UL_TO_PTE_INDEX((ulong) >> 39), UL_TO_PTE_INDEX((ulong) >> 30), \
++	UL_TO_PTE_INDEX((ulong) >> 21), UL_TO_PTE_INDEX((ulong) >> 12), \
++	UL_TO_PTE_OFFSET((ulong))
++
++
++// convert unsigned long to pte
++#define UL_TO_PTE_PHYADDR(ulong) \
++	BYTE_TO_BINARY((ulong) >> 32),    \
++	BYTE_TO_BINARY((ulong) >> 24), BYTE_TO_BINARY((ulong) >> 16), \
++	BYTE_TO_BINARY((ulong) >> 8), BYTE_TO_BINARY((ulong) >> 0)
++
++#define UL_TO_PTE_IR(ulong) UL_TO_PTE_OFFSET(ulong)
++
++#define UL_TO_PTE(ulong) \
++	UL_TO_PTE_IR((ulong) >> 52), UL_TO_PTE_PHYADDR((ulong) >> PAGE_SHIFT), \
++	UL_TO_PTE_OFFSET(ulong)
++
++#define UL_TO_PADDR(ulong) \
++	UL_TO_PTE_PHYADDR((ulong) >> PAGE_SHIFT), UL_TO_PTE_OFFSET(ulong)
++
++/* printk pattern strings */
++
++// convert unsigned long to vaddr
++#define TBYTE_TO_BINARY_PATTERN   "%c%c%c"
++#define BYTE_TO_BINARY_PATTERN    "%c%c%c%c%c%c%c%c"
++
++#define PTE_INDEX_PATTERN \
++	TBYTE_TO_BINARY_PATTERN TBYTE_TO_BINARY_PATTERN TBYTE_TO_BINARY_PATTERN \
++	" "
++
++#define VADDR_OFFSET_PATTERN \
++	TBYTE_TO_BINARY_PATTERN TBYTE_TO_BINARY_PATTERN \
++	TBYTE_TO_BINARY_PATTERN TBYTE_TO_BINARY_PATTERN
++
++#define VADDR_PATTERN \
++	PTE_INDEX_PATTERN PTE_INDEX_PATTERN \
++	PTE_INDEX_PATTERN PTE_INDEX_PATTERN \
++	VADDR_OFFSET_PATTERN
++
++
++// convert unsigned long to pte
++// 40 bits
++#define PTE_PHYADDR_PATTREN \
++	BYTE_TO_BINARY_PATTERN BYTE_TO_BINARY_PATTERN \
++	BYTE_TO_BINARY_PATTERN BYTE_TO_BINARY_PATTERN \
++	BYTE_TO_BINARY_PATTERN " "
++
++// 12 bits
++#define PTE_IR_PATTERN VADDR_OFFSET_PATTERN " "
++
++// 12 + 40 + 12 bits
++#define PTE_PATTERN PTE_IR_PATTERN PTE_PHYADDR_PATTREN VADDR_OFFSET_PATTERN
++
++#define PADDR_PATTERN PTE_PHYADDR_PATTREN VADDR_OFFSET_PATTERN
++
++/* EPT walker functions */
++typedef void (*inspect_spte_fn)(gpa_t address, u64 spte, gpa_t i, int level);
++
++/* print result functions */
++static inline u64 print_huge_pte(u64 ent, gpa_t gpa)
++{
++	u64 page_hpa = ent & SPTE_BASE_ADDR_MASK, // Page HPA
++		offset_mask = (1ULL << SPTE_LEVEL_SHIFT(2)) - 1, // Page offset
++		*ptr = (u64 *)(__va(
++				page_hpa +
++				(gpa &
++				 offset_mask))); // HVA to access data
++
++	pr_info("Huge Page (2M) at level 2 detected!");
++	// pr_info("Mask1 000000000000 1111111111111111111111111111111000000000 000000000000 (get HPA of Huge Page)");
++
++	pr_info("[e.g]   [Rsvd./Ign.] [  Huge Page Number, 31 Bits  ][Ignored] [   Flags  ]");
++
++	pr_info(" PMD    " PTE_PATTERN " (PMD Entry that maps Huge Page)",
++		UL_TO_PTE(ent));
++	pr_info(" Mask1  " PTE_PATTERN " (get HPA of Huge Page)",
++		UL_TO_PTE(SPTE_BASE_ADDR_MASK));
++	pr_info(" HFN    " PTE_PATTERN " (HFN of Huge Page)",
++		UL_TO_PTE(page_hpa));
++
++	pr_err("---------------------------------------------------------------------------------------------");
++
++	pr_info(" GPA    " PTE_PATTERN " (GPA from Guest)",
++		UL_TO_PTE(gpa));
++	pr_info(" Mask2  " PTE_PATTERN " (get offset in Huge Page)",
++		UL_TO_PTE(offset_mask));
++	pr_info(" Offset " PTE_PATTERN " (offset in Huge Page)",
++		UL_TO_PTE(gpa & offset_mask));
++
++	pr_err("---------------------------------------------------------------------------------------------");
++
++	pr_info("HPA   " PTE_PATTERN,
++		UL_TO_PTE((u64)page_hpa + (gpa & offset_mask)));
++	pr_info("Value at HPA: %llu\n", *ptr);
++
++	return page_hpa + (gpa & offset_mask);
++}
++
++static inline u64 print_pte(u64 ent, gpa_t gpa)
++{
++	u64 page_hpa = ent & SPTE_BASE_ADDR_MASK, // Page HPA
++		offset_mask = PAGE_SIZE - 1, // Page offset
++		*ptr = (u64 *)(__va(
++				page_hpa +
++				(gpa &
++				 offset_mask))); // HVA to access data
++
++	pr_info("Normal Page (4k) at level 1 detected!");
++	// pr_info("Mask1 000000000000 1111111111111111111111111111111000000000 000000000000 (get HPA of Huge Page)");
++	pr_info("[e.g]   [Rsvd./Ign.] [  Host Physical Frame Number, 40 Bits ] [   Flags  ]");
++
++	pr_info(" PTE    " PTE_PATTERN " (PTE Entry that maps Page)",
++		UL_TO_PTE(ent));
++	pr_info(" Mask1  " PTE_PATTERN " (get HPA of Page)",
++		UL_TO_PTE(SPTE_BASE_ADDR_MASK));
++	pr_info(" HFN    " PTE_PATTERN " (HFN of Page)", UL_TO_PTE(page_hpa));
++
++	pr_err("---------------------------------------------------------------------------------------------");
++
++	pr_info(" GPA    " PTE_PATTERN " (GPA from Guest)",
++		UL_TO_PTE(gpa));
++	pr_info(" Mask2  " PTE_PATTERN " (get offset in Page)",
++		UL_TO_PTE(offset_mask));
++	pr_info(" Offset " PTE_PATTERN " (offset in Page)",
++		UL_TO_PTE(gpa & offset_mask));
++
++	pr_err("---------------------------------------------------------------------------------------------");
++
++	pr_info("HPA   " PTE_PATTERN,
++		UL_TO_PTE((u64)page_hpa + (gpa & offset_mask)));
++	pr_info("Value at HPA: %llu\n", *ptr);
++
++	return page_hpa + (gpa & offset_mask);
++}
++
++static void __mmu_spte_walk(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
++			    inspect_spte_fn fn, int level,
++			    gpa_t gpa, gpa_t pxx_idx[PT64_ROOT_4LEVEL])
++{
++	gpa_t i = pxx_idx[PT64_ROOT_4LEVEL - (5 - level)];
++	if (i < 0 || i >= SPTE_ENT_PER_PAGE)
++		return;
++
++	u64 *ent = sp->spt;
++
++	if (is_shadow_present_pte(ent[i])) {
++		struct kvm_mmu_page *child;
++
++		fn(__pa(ent), ent[i], i, level);
++
++		if (!is_last_spte(ent[i], 5 - level)) { // continue walking
++			child = to_shadow_page(ent[i] & SPTE_BASE_ADDR_MASK);
++			__mmu_spte_walk(vcpu, child, fn, level + 1,
++					gpa, pxx_idx);
++		} else {
++			if (is_large_pte(ent[i])) // huge page
++				print_huge_pte(ent[i], gpa);
++			else                      // last level
++				print_pte(ent[i], gpa);
++		}
++	}
++}
++
++static void mmu_spte_walk(struct kvm_vcpu *vcpu, inspect_spte_fn fn,
++			  gpa_t gpa, gpa_t pxx_idx[PT64_ROOT_4LEVEL])
++{
++	struct kvm_mmu_page *sp;
++
++	if (!VALID_PAGE(vcpu->arch.mmu->root.hpa))
++		return;
++
++	if (vcpu->arch.mmu->root_role.level >= PT64_ROOT_4LEVEL) {
++		hpa_t root = vcpu->arch.mmu->root.hpa;
++		pr_info("This is EPT\n\n");
++
++		sp = to_shadow_page(root);
++		__mmu_spte_walk(vcpu, sp, fn, 1, gpa, pxx_idx);
++	}
++}
++
++static const char *PREFIXES[] = { "PGD", "PUD", "PMD", "PTE" };
++
++static void pr_spte(gpa_t address, u64 spte, gpa_t i, int level)
++{
++	if (level == 1)
++		pr_cont(" NEXT_LVL_HPA(EPTP) =  ");
++	else
++		pr_cont(" NEXT_LVL_HPA(%s)  =  ", PREFIXES[level - 2]);
++	pr_cont(PTE_PHYADDR_PATTREN, UL_TO_PTE_PHYADDR(address >> PAGE_SHIFT));
++	pr_cont(" +   8 * %-3llu\n", (u64)i);
++	pr_sep();
++
++	pr_cont(" %-3llu: %s " PTE_PATTERN "\n", (u64)i, PREFIXES[level - 1],
++		UL_TO_PTE(spte));
++}
++
++static void print_gpa_from_guest(gpa_t gpa, gpa_t pxx_idx[PT64_ROOT_4LEVEL])
++{
++	gpa_t mask = ((1UL << SPTE_LEVEL_BITS) - 1);
++
++	pxx_idx[0] = (gpa >> 39) & mask;
++	pxx_idx[1] = (gpa >> 30) & mask;
++	pxx_idx[2] = (gpa >> 21) & mask;
++	pxx_idx[3] = (gpa >> 12) & mask;
++
++	pr_info(" EPT PGD index: %llu", (u64)pxx_idx[0]);
++	pr_info(" EPT PUD index: %llu", (u64)pxx_idx[1]);
++	pr_info(" EPT PMD index: %llu", (u64)pxx_idx[2]);
++	pr_info(" EPT PTE index: %llu", (u64)pxx_idx[3]);
++
++	// pr_info("100110010 101101000 111010000 101000110 110010001000");
++	pr_info("          %llu       %llu       %llu       %llu",
++		(u64)pxx_idx[0], (u64)pxx_idx[1],
++		(u64)pxx_idx[2], (u64)pxx_idx[3]);
++	pr_info(" GPA [PGD IDX] [PUD IDX] [PMD IDX] [PTE IDX] [  Offset  ]");
++	pr_info(" GPA " VADDR_PATTERN "\n", UL_TO_VADDR(gpa));
++}
++
++void hypercall_22(struct kvm_vcpu *vcpu, gpa_t gpa)
++{
++	gpa_t pxx_idx[PT64_ROOT_4LEVEL];
++	print_gpa_from_guest(gpa, pxx_idx);
++	mmu_spte_walk(vcpu, pr_spte, gpa, pxx_idx);
++}
+diff --git a/linux-6.1.115/arch/x86/kvm/mmu.h b/linux-6.1.115/arch/x86/kvm/mmu.h
+index 59804be..3c5d87f 100644
+--- a/linux-6.1.115/arch/x86/kvm/mmu.h
++++ b/linux-6.1.115/arch/x86/kvm/mmu.h
+@@ -242,6 +242,8 @@ int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu);
+ int kvm_mmu_post_init_vm(struct kvm *kvm);
+ void kvm_mmu_pre_destroy_vm(struct kvm *kvm);
+ 
++void hypercall_22(struct kvm_vcpu *vcpu, gpa_t gpa);
++
+ static inline bool kvm_shadow_root_allocated(struct kvm *kvm)
+ {
+ 	/*
+diff --git a/linux-6.1.115/arch/x86/kvm/x86.c b/linux-6.1.115/arch/x86/kvm/x86.c
+index 4e778ba..b667cbc 100644
+--- a/linux-6.1.115/arch/x86/kvm/x86.c
++++ b/linux-6.1.115/arch/x86/kvm/x86.c
+@@ -9755,6 +9755,10 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
+ 	ret = -KVM_ENOSYS;
+ 
+ 	switch (nr) {
++	case 22:
++		hypercall_22(vcpu, a0);
++		ret = 0;
++		break;
+ 	case KVM_HC_VAPIC_POLL_IRQ:
+ 		ret = 0;
+ 		break;
