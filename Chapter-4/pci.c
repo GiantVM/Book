@@ -107,7 +107,7 @@ static long edu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case DMA_WRITE_CMD:
             
 						
-			iowrite32(mmio+0x100, mmio + IO_DMA_DST);
+			iowrite32((uintptr_t)(mmio+0x100), mmio + IO_DMA_DST);
            	iowrite32(DMA_BASE, mmio + IO_DMA_SRC);
 			iowrite32(4, mmio + IO_DMA_CNT);
 			iowrite32(DMA_CMD|DMA_FROM_MEM|DMA_IRQ, mmio + IO_DMA_CMD);
@@ -117,7 +117,7 @@ static long edu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case DMA_READ_CMD:
 			
 			iowrite32(DMA_BASE, mmio + IO_DMA_DST);
-            iowrite32(mmio+0x104, mmio + IO_DMA_SRC);
+            iowrite32((uintptr_t)(mmio+0x104), mmio + IO_DMA_SRC);
 			iowrite32(4, mmio + IO_DMA_CNT);
 			iowrite32(DMA_CMD|DMA_TO_MEM|DMA_IRQ, mmio + IO_DMA_CMD);
 			msleep(1000);
