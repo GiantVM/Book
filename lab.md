@@ -195,8 +195,8 @@ qemu-system-x86_64 -nographic -serial mon:stdio -cpu host -enable-kvm \
 
 ```bash
 # 在客户机中运行
-cd ~/Book/Chapter-3
-./run.sh
+cd ~/Book/Chapter-3/linux-v6.x
+../run.sh
 # 应在此处保存 gpt-dump.txt 中的内容，为客户机页表的翻译过程
 # 若提示 Command not found，请执行 chmod +x ./run.sh 为脚本添加可执行权限后再运行
 
