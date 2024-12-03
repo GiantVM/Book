@@ -179,7 +179,7 @@ void dump_pgd(pgd_t *pgtable, int level) {
 		if (pgd_leaf(pgd)) {
 			pr_info("Large pgd detected! return");
 		} else if (pgd_present(pgd)) {
-			pr_pte(__pa(pgtable), pgd_val(pgd), pgd_idx, level);
+			pr_pte(__pa(pgtable), pgd_val(pgd), idx, level);
 			dump_pud((pud_t *) pgd_page_vaddr(pgd), level + 1);
 		}
 	}
@@ -195,7 +195,7 @@ void dump_pud(pud_t *pgtable, int level) {
 		if (pud_leaf(pud)) {
 			pr_info("Large pud detected! return");
 		} else if (pud_present(pud) && !pud_leaf(pud)) {
-			pr_pte(__pa(pgtable), pud_val(pud), pgd_idx, level);
+			pr_pte(__pa(pgtable), pud_val(pud), idx, level);
 			dump_pmd(pud_pgtable(pud), level + 1);
 		}
 	}
