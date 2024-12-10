@@ -17,7 +17,7 @@
 - Arch：`pacman -S qemu-system-x86 cloud-image-utils`
 
 #### 获取虚拟机镜像
-为了简化环境配置，助教提供了安装有实验用内核的虚拟机镜像，供同学们选择（[pan.sjtu 链接](https://pan.sjtu.edu.cn/web/share/302c7ecaa54ac32ff96c08845fb91d6f)）。你可以选择助教提供的镜像，也可以参考助教提供镜像的制作步骤（见附录“助教配置实验用虚拟机步骤”）自行配置。
+为了简化环境配置，助教提供了安装有实验用内核的虚拟机镜像，供同学们选择（[pan.sjtu 链接](https://pan.sjtu.edu.cn/web/share/302c7ecaa54ac32ff96c08845fb91d6f)）。你可以选择助教提供的镜像，也可以参考助教提供镜像的制作步骤（见附录“助教配置实验用虚拟机步骤”）自行配置。使用QEMU虚拟化请使用qcow2文件，后续步骤以qcow2介绍。如果需要使用Windows上虚拟机软件（如VirtualBox、VMware），请使用vmdk文件，操作方式请参照qcow2自行探索。
 
 #### 设置虚拟机使用的 cloud-init 信息
 
@@ -58,8 +58,7 @@ cloud-localds ./seed.iso cloud-config
 #### 初始化配置虚拟机
 
 ```bash
-sha512sum -c SHA512SUMS  # 校验
-zstd -d debian-12.qcow2.zst  # 解压
+sha512sum -c SHA512SUMS  # 校验下载文件
 ```
 
 用 `qemu-img` 扩容 `debian-12.qcow2` （20G肯定足够实验需要，具体可按实际需要调整）。
@@ -198,7 +197,7 @@ qemu-system-x86_64 -nographic -serial mon:stdio -cpu host -enable-kvm \
 cd ~/Book/Chapter-3/linux-v6.x
 ../run.sh
 # 应在此处保存 gpt-dump.txt 中的内容，为客户机页表的翻译过程
-# 若提示 Command not found，请执行 chmod +x ./run.sh 为脚本添加可执行权限后再运行
+# 若提示 Command not found，请执行 chmod +x ../run.sh 为脚本添加可执行权限后再运行
 
 # 退出客户机：
 sudo poweroff
@@ -382,25 +381,40 @@ sudo apt install sysbench
 sudo poweroff
 ```
 
+由于 StratoVirt 的qcow2 backend尚未实现压缩特性，所以需要用 `qemu-img` 工具转换镜像。如果同学有兴趣，欢迎向StratoVirt官方提issue。
+
+```bash
+# 选项1：转换虚拟机镜像为raw格式（未压缩，如果文件系统不支持稀疏文件会很占空间）
+qemu-img convert -f qcow2 -O raw debian-12.qcow2 debian-12.raw
+DRIVE="file=debian-12.raw,format=raw"
+# 选项2：也可用不带 -c 的 qemu-img convert 产生不压缩的qcow2
+qemu-img convert -f qcow2 -O qcow2 debian-12.qcow2 debian-12-another.qcow2
+DRIVE="file=debian-12-another.qcow2,format=qcow2"
+
+common_vm_args=(
+    # 使用 microvm 启动
+    -machine microvm -m 1024 -cpu host
+    # microvm 设备模型启动时需要指定内核
+    -kernel vmlinuz-6.6.63-lab -append 'console=ttyS0 root=/dev/vda1'
+    -drive "$DRIVE",id=rootfs
+    -device virtio-blk-device,drive=rootfs,id=rootfs
+    -qmp unix:/tmp/qmp.sock,server,nowait
+)
+```
+
 #### 启动性能对比
 
 - 启动时间：请在 StratoVirt 客户机和 QEMU 客户机中分别记录启动时间，要求两种方案各启动 3 次记录结果（建议与内存占用一起测试）。
 - 内存占用：请在主机中记录同样使用 1G 内存时，使用 pmap 记录 StratoVirt 与 QEMU 进程各自占用的内存数量，要求两种方案各启动 10 次记录结果。
 
-由于使用 microvm 设备模型启动，需要在QEMU启动时指定内核。
-
 StratoVirt启动命令：
 
 ```bash
-# 使用 microvm 启动，注意 <path/to/stratovirt> 应当替换为编译后的
+# 注意 <path/to/stratovirt> 应当替换为编译后的
 # stratovirt 源代码目录下的 target/release/stratovirt 可执行文件
 # 或者将 stratovirt 添加到环境变量中
-<path/to/stratovirt> -disable-seccomp \
-    -machine microvm -m 1024 -cpu host \
-    -kernel vmlinuz-6.6.63-lab -append 'console=ttyS0 root=/dev/vda1' \
-    -drive file=debian-12.qcow2,id=rootfs,format=qcow2 \
-    -device virtio-blk-device,drive=rootfs,id=rootfs \
-    -qmp unix:/tmp/stratovirt.sock,server,nowait -serial stdio
+<path/to/stratovirt> -disable-seccomp -serial stdio \
+    "${common_vm_args[@]}"
 
 # 虚拟机 poweroff/reboot 退出如果卡在 “reboot: System halted”，可以直接 `pkill stratovirt` 强行退出
 
@@ -414,13 +428,8 @@ pmap -x $(pgrep stratovirt)
 QEMU：
 
 ```bash
-# 使用 qemu 启动
-qemu-system-x86_64 -enable-kvm \
-    -machine microvm -m 1024 -cpu host \
-    -kernel vmlinuz-6.6.63-lab -append 'console=ttyS0 root=/dev/vda1' \
-    -drive file=debian-12.qcow2,id=rootfs,format=qcow2 \
-    -device virtio-blk-device,drive=rootfs,id=rootfs \
-    -qmp unix:/tmp/qemu.sock,server,nowait -nographic
+qemu-system-x86_64 -enable-kvm -nographic \
+    "${common_vm_args[@]}"
 
 # 查看启动时间并记录在报告中
 systemd-analyze time
