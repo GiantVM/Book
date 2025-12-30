@@ -21,3 +21,5 @@
 2024-11-26: 将第三章实验的代码更新到linux v6.x版本。使用方法见Chapter-3里的README.md。
 
 2024-11-28: 补传 Chapter-6/QA.sh 脚本，提供了实验文档 [lab.md](./lab.md)，补充头歌MOOC链接。
+
+2025-12-30：上传了[lab25.md](./lab25.md)，勘误了原来实验文档中关于stratovirt启动格式的问题，并更新了VM image和链接。
