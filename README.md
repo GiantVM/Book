@@ -17,6 +17,8 @@
 
 2023-10-09: 修复原书第三章中实验的 PTE 大小为 64 bytes 的显示错误，修改为 8 bytes，对应原书 P157, P160 的 `gpt-dum.txt` 与 `ept-dump.txt` 中的输出，修改后可见 `Chapter-3` 中的对应文件。修改前的内容可见[该 commit](https://github.com/GiantVM/Book/tree/86b1ae0c7d29b9cf1a1caceb66c68a030f3a0039).
 
+2026-01-13：原书36页图2-6中VMCS模块中的“客户机状态域”字段，应改为宿主机状态域，因为其对应的箭头指向的是宿主机hyperviosr的寄存器状态。改勘误由西南交通大学计算机与人工智能学院研究生唐世涛同学指出。
+
 ## 升级说明
 2024-11-26: 将第三章实验的代码更新到linux v6.x版本。使用方法见Chapter-3里的README.md。
 
